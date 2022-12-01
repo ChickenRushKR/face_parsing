@@ -7,7 +7,34 @@ from argparse import ArgumentParser
 from ibug.face_detection import RetinaFacePredictor
 from ibug.face_parsing import FaceParser as RTNetPredictor
 from ibug.face_parsing.utils import label_colormap
+from ibug.face_detection.utils import HeadPoseEstimator
 
+
+def count_hist(arr):
+    cmap = np.array(
+            [
+                (0, 0, 0),
+                (255, 255, 0),
+                (139, 76, 57),
+                (139, 54, 38),
+                (0, 205, 0),
+                (0, 138, 0),
+                (154, 50, 205),
+                (72, 118, 255),
+                (255, 165, 0),
+                (0, 0, 139),
+                (255, 0, 0),
+            ],
+            dtype=np.uint8,
+        )
+    histo = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    for i in range(arr.shape[0]):
+        for j in range(arr.shape[1]):
+            for c in range(11):
+                if arr[i,j] == cmap[c]:
+                    histo[c] += 1
+    
+    return histo
 
 def main() -> None:
     # Parse command-line arguments
@@ -37,6 +64,9 @@ def main() -> None:
                         default=None)
     parser.add_argument('--device', '-d', help='Device to be used by the model (default=cuda:0)',
                         default='cuda:0')
+    parser.add_argument('--head-pose-preference', '-hp',
+                        help='Head pose output preference (default=0)',
+                        type=int, default=0)
     args = parser.parse_args()
 
     # Set benchmark mode flag for CUDNN
@@ -47,6 +77,7 @@ def main() -> None:
     has_window = False
     face_detector = RetinaFacePredictor(threshold=args.threshold, device=args.device,
                                         model=(RetinaFacePredictor.get_model('mobilenet0.25')))
+    head_pose_estimator = HeadPoseEstimator()
     face_parser = RTNetPredictor(
         device=args.device, ckpt=args.weights, encoder=args.encoder, decoder=args.decoder, num_classes=args.num_classes)
 
@@ -91,19 +122,32 @@ def main() -> None:
                       f'{len(faces)} faces detected.')
 
                 if len(faces) == 0:
+                    if using_webcam or not args.no_display:
+                        has_window = True
+                        cv2.imshow(window_title, frame)
+                        key = cv2.waitKey(1) % 2 ** 16
+                        if key == ord('q') or key == ord('Q'):
+                            print('\'Q\' pressed, we are done here.')
+                            break
+                    frame_number += 1
                     continue
                 # Parse faces
                 start_time = time.time()
                 masks = face_parser.predict_img(frame, faces, rgb=False)
                 elapsed_time = time.time() - start_time
-
+                if faces.shape[1] >= 15:
+                    head_poses = [head_pose_estimator(face[5:15].reshape((-1, 2)), *frame.shape[1::-1],
+                                                    output_preference=args.head_pose_preference)
+                                for face in faces]
+                else:
+                    head_poses = [None] * faces.shape[0]
                 # Textural output
                 print(f'Frame #{frame_number} processed in {elapsed_time * 1000.0:.04f} ms: ' +
                       f'{len(masks)} faces parsed.')
 
                 # # Rendering
                 dst = frame
-                for i, (face, mask) in enumerate(zip(faces, masks)):
+                for i, (face, mask, head_pose) in enumerate(zip(faces, masks, head_poses)):
                     bbox = face[:4].astype(int)
                     cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color=(
                         0, 0, 255), thickness=2)
@@ -112,6 +156,17 @@ def main() -> None:
                     res = colormap[mask]
                     dst[index] = (1 - alpha) * frame[index].astype(float) + \
                         alpha * res[index].astype(float)
+                    if head_pose is not None:
+                        pitch, yaw, roll = head_pose
+                        cv2.putText(frame, f'Pitch: {pitch:.1f}', (bbox[2] + 5, bbox[1] + 10),
+                                    cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 0, 255), lineType=cv2.LINE_AA)
+                        cv2.putText(frame, f'Yaw: {yaw:.1f}', (bbox[2] + 5, bbox[1] + 30),
+                                    cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 0, 255), lineType=cv2.LINE_AA)
+                        cv2.putText(frame, f'Roll: {roll:.1f}', (bbox[2] + 5, bbox[1] + 50),
+                                    cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 0, 255), lineType=cv2.LINE_AA)
+                    print(count_hist(res))
+                    # print(mask)
+                    
                 dst = np.clip(dst.round(), 0, 255).astype(np.uint8)
                 frame = dst
                 # Write the frame to output video (if recording)
@@ -122,7 +177,7 @@ def main() -> None:
                 if using_webcam or not args.no_display:
                     has_window = True
                     cv2.imshow(window_title, frame)
-                    key = cv2.waitKey(1) % 2 ** 16
+                    key = cv2.waitKey(99999) % 2 ** 16
                     if key == ord('q') or key == ord('Q'):
                         print('\'Q\' pressed, we are done here.')
                         break
