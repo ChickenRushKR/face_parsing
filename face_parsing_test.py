@@ -11,28 +11,10 @@ from ibug.face_detection.utils import HeadPoseEstimator
 
 
 def count_hist(arr):
-    cmap = np.array(
-            [
-                (0, 0, 0),
-                (255, 255, 0),
-                (139, 76, 57),
-                (139, 54, 38),
-                (0, 205, 0),
-                (0, 138, 0),
-                (154, 50, 205),
-                (72, 118, 255),
-                (255, 165, 0),
-                (0, 0, 139),
-                (255, 0, 0),
-            ],
-            dtype=np.uint8,
-        )
     histo = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     for i in range(arr.shape[0]):
         for j in range(arr.shape[1]):
-            for c in range(11):
-                if arr[i,j] == cmap[c]:
-                    histo[c] += 1
+            histo[arr[i,j]] += 1
     
     return histo
 
@@ -164,7 +146,7 @@ def main() -> None:
                                     cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 0, 255), lineType=cv2.LINE_AA)
                         cv2.putText(frame, f'Roll: {roll:.1f}', (bbox[2] + 5, bbox[1] + 50),
                                     cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 0, 255), lineType=cv2.LINE_AA)
-                    print(count_hist(res))
+                    print(count_hist(mask))
                     # print(mask)
                     
                 dst = np.clip(dst.round(), 0, 255).astype(np.uint8)

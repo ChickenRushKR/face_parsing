@@ -8,3 +8,6 @@ build
 dist
 *.egg-info
 *.mp4
+*.png
+*.dat
+*.xlsx

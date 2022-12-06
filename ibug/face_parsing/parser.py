@@ -110,6 +110,7 @@ class FaceParser(object):
         # img = self.transform(img).unsqueeze(0).to(self.device)
 
         img = torch.stack(imgs).to(self.device)
+        print(img.shape)
         logits = self.model(img, bboxes_tensor)
         mask = self.restore_warp(h, w, logits, bboxes_tensor)
         return mask
